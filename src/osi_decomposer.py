@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 from typing import Dict, Any, List
-from scapy.all import IP, ICMP, Ether, hexdump
+from scapy.all import IP, TCP, ICMP, Ether, hexdump, packet
 import json, time, textwrap, binascii
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from typer import *
+import typer
 
 @dataclass
 class Layer:
@@ -19,7 +19,6 @@ class Layer:
         return hdr + self.payload
 
 def build_layers(ip_addr: str, url: str) -> List[Layer]:
-
     app_msg = {
         "type": f"Pinging IP: {ip_addr} ({url})",
         "time": time.time(),
@@ -89,104 +88,105 @@ def pretty_show(layers: List[any]):
         tab.add_row("[italic]bytes[/]", f"[{palette[index]}]{hexbytes}[/{palette[index]}]")
         console.print(Panel(tab, title=f"Layer {layer.osi}: {layer.name}", border_style=palette[index]))
 
-def scapy_pkt_to_osi(pkt: scapy.all.packet) -> List[Layer]:
+def scapy_pkt_to_osi(pkt) -> List[Layer]:
+    try:
+        pkt.show()
+        layers_out = []
+        previous_level_raw = bytes(pkt)
 
-    pkt.show()
-    layers_out = []
-    previous_level_raw = bytes(pkt)
+        if pkt.haslayer(Ether):
+            typer.echo("Layer 2: Data Link (Ethernet II) exists in packet.")
+            eth = pkt[Ether]
+            eth_bytes, eth_payload = bytes(eth)[:14], bytes(eth)[14:]
+            l2 = Layer(2, "Data Link (Ethernet II)", {
+                "src": eth.src,
+                "dst": eth.dst,
+                "type": hex(eth.type),
+                "_bytes": eth_bytes
+            }, eth_payload)
+            layers_out.append(l2)
+            previous_level_raw = eth_payload
 
-    if pkt.haslayer(Ether):
-        typer.echo("Layer 2: Data Link (Ethernet II) exists in packet.")
-        eth = pkt[Ether]
-        eth_bytes, eth_payload = bytes(eth)[:14], bytes(eth)[14:]
-        l2 = Layer(2, "Data Link (Ethernet II)", {
-            "src": eth.src,
-            "dst": eth.dst,
-            "type": hex(eth.type),
-            "_bytes": eth_bytes
-        }, eth_payload)
-        layers_out.append(l2)
-        previous_level_raw = eth_payload
+        else:
+            typer.echo("Layer 2: Data Link (Ethernet II) does not exist in packet.")
+            pass
 
-    else:
-        typer.echo("Layer 2: Data Link (Ethernet II) does not exist in packet.")
-        pass
+        if pkt.haslayer(IP):
+            typer.echo("Layer 3: Network (IPv4) exists in packet.")
+            ip_layer = pkt[IP]
+            ip_header_len = ip_layer.ihl * 4
+            ip_bytes, ip_payload = bytes(ip_layer)[:ip_header_len], bytes(ip_layer)[ip_header_len:]
+            l3 = Layer(3, "Network (IPv4)", {
+                "src": ip_layer.src,
+                "dst": ip_layer.dst,
+                "ttl": ip_layer.ttl,
+                "_bytes": ip_bytes
+            }, ip_payload)
+            layers_out.append(l3)
+            previous_level_raw = ip_payload
+        else:
+            typer.echo("Layer 3: Network (IPv4) does not exist in packet.")
+            pass
 
-    if pkt.haslayer(IP):
-        typer.echo("Layer 3: Network (IPv4) exists in packet.")
-        ip_layer = pkt[IP]
-        ip_header_len = ip_layer.ihl * 4
-        ip_bytes, ip_payload = bytes(ip_layer)[:ip_header_len], bytes(ip_layer)[ip_header_len:]
-        l3 = Layer(3, "Network (IPv4)", {
-            "src": ip_layer.src,
-            "dst": ip_layer.dst,
-            "ttl": ip_layer.ttl,
-            "_bytes": ip_bytes
-        }, ip_payload)
-        layers_out.append(l3)
-        previous_level_raw = ip_payload
-    else:
-        typer.echo("Layer 3: Network (IPv4) does not exist in packet.")
-        pass
+        if pkt.haslayer(TCP):
+            typer.echo("Layer 4: Transport (TCP) exists in packet.")
+            tcp_layer = pkt[TCP]
+            tcp_hdr_len = tcp_layer.dataofs * 4
+            tcp_bytes = bytes(tcp_layer)[:tcp_hdr_len]
+            tcp_payload = bytes(tcp_layer)[tcp_hdr_len:]
+            flags_str = f"{int(tcp_layer.flags):08b}"
+            flags_dict = {
+                "CWR": flags_str[0],
+                "ECE": flags_str[1],
+                "URG": flags_str[2],
+                "ACK": flags_str[3],
+                "PSH": flags_str[4],
+                "RST": flags_str[5],
+                "SYN": flags_str[6],
+                "FIN": flags_str[7]
+            }
+            l4 = Layer(4, "Transport (TCP)", {
+                "src": tcp_layer.sport,
+                "dst": tcp_layer.dport,
+                "flags": flags_dict,
+                "seq": tcp_layer.seq,
+                "ack": tcp_layer.ack,
+                "window": tcp_layer.window,
+                "_bytes": tcp_bytes
+            }, tcp_payload)
 
-    if pkt.haslayer(TCP):
-        typer.echo("Layer 4: Transport (TCP) exists in packet.")
-        tcp_layer = pkt[TCP]
-        tcp_hdr_len = tcp_layer.dataofs * 4
-        tcp_bytes, tcp_payload = bytes(tcp_layer)[:tcp_hdr_len], bytes(tcp_layer)[tcp_hdr_len:]
-        flags_str   = f"{tcp_layer.flags:08b}"
-        l4 = Layer(4, "Transport (TCP)", {
-            "src": tcp_layer.sport,
-            "dst": tcp_layer.dport,
-            "flags": flags_str,
-            "seq": tcp_layer.seq,
-            "ack": tcp_layer.ack,
-            "window": tcp_layer.window,
-            "_bytes": tcp_bytes
-        }, tcp_payload)
-        layers_out.append(l4)
-        previous_level_raw = tcp_payload
-    else:
-        # VERY HIGHLY UNLIKELY
-        typer.echo("Layer 4: Transport (TCP) does not exist in packet.")
-        pass
-    
-    if hasattr(pkt, "load"):
-        app_data = pkt.load
+            layers_out.append(l4)
+            previous_level_raw = tcp_payload
+        else:
+            typer.echo("Layer 4: Transport (TCP) does not exist in packet.")
+            pass
 
-        l7 = Layer(
-            7, "Application (HTTP?)",
-            {"_bytes": b""},
-            app_data
-        )
-        l6 = Layer(
-            6, "Presentation",
-            {"_bytes": b"\x75\x74\x66\x38"},  # "utf8" marker
-            l7.raw()
-        )
-        sess = b"HTTPSESSION\x00"
-        l5 = Layer(
-            5, "Session",
-            {"_bytes": sess},
-            l6.raw()
-        )
-        layers_out.append(l5)
-        layers_out.append(l6)
-        layers_out.append(l7)
-    else:
-        typer.echo("Layer 7: Application (HTTP?) does not exist in packet.")
-        pass
+        if hasattr(pkt, 'load'):
+            l7 = Layer(
+                7, "Application (HTTP?)",
+                {"_bytes": pkt.load},
+                b""
+            )
+            l6 = Layer(
+                6, "Presentation",
+                {"_bytes": b"\x75\x74\x66\x38"},  # "utf8" marker
+                l7.raw()
+            )
+            sess = b"HTTPSESSION\x00"
+            l5 = Layer(5, "Session", {"_bytes": sess}, l6.raw())
+            layers_out.extend([l5, l6, l7])
 
-    final_bytes = layers_out[-1].raw() if layers_out else bytes(pkt)
-    bitstring = ''.join(f"{b:08b}" for b in final_bytes)
-    pretty_bits = textwrap.fill(bitstring, 64)
-    l1 = Layer(1, "Physical (copper/fibre/coaxial)", {
-        "encoding": "NRZ (std)",
-        "length": len(bitstring),
-        "_bytes": pretty_bits.encode()
-    }, b"")
-    layers_out.append(l1)
-    
-    # Sort from top(L7)→bottom(L1)
-    layers_out.sort(key=lambda x: x.osi, reverse=True)
-    return layers_out
+        # Layer 1: Physical (bits on wire)
+        bitstring = "".join(f"{b:08b}" for b in previous_level_raw)
+        pretty_bits = textwrap.fill(bitstring, 64)
+        l1 = Layer(1, "Physical (copper/fibre/coaxial)", {
+            "encoding": "NRZ (std)",
+            "length": len(bitstring),
+            "_bytes": pretty_bits.encode()
+        }, b"")
+        layers_out.append(l1)
+
+        return layers_out
+    except Exception as e:
+        typer.echo(f"Error in scapy_pkt_to_osi: {str(e)}")
+        return []

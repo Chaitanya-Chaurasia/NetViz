@@ -1,6 +1,6 @@
 import socket, typer
 from rich.progress import track
-from method_callback import packet_encapsulation, trace_dns, trace_route
+from method_callback import packet_encapsulation, trace_dns, trace_geo_route, request_flow_handler
 
 help_str = "NetViz - Network Visualizer\n Usage: netviz [OPTIONS]"
 
@@ -60,7 +60,7 @@ def visualize(url: str):
     @description: A complete trace -> DNS resolution + Packet Visualization + GeoTracing
 """
 @app.command()
-def complete_trace(url: str, show_layers: bool = True, max_hops: int = 30, method: str = "GET"):
+def traceroute(url: str, show_layers: bool = True, max_hops: int = 30, method: str = "GET"):
 
     print("TELEMETRY: Performing a complete trace: DNS resolution + Packet Visualization + GeoTracing")
     if not url:
@@ -86,11 +86,17 @@ def complete_trace(url: str, show_layers: bool = True, max_hops: int = 30, metho
     typer.echo("\nTracing DNS...")
     trace_dns(target_ip, url)
     
-    typer.echo("\nVisualizing packets...")
-    packet_encapsulation(target_ip, url)
-    
+    typer.echo("\nVisualizing packets and breaking them into OSI...")
+    try:
+        # Convert URL to a path by removing protocol and domain if present
+        path = "/" + "/".join(url.split("/")[3:]) if "//" in url else "/"
+        request_flow_handler(ip_addr=target_ip, path=path, method=method)
+        typer.echo("\nRequest flow completed successfully.")
+    except Exception as e:
+        typer.echo(f"Error during packet visualization: {str(e)}")
+
     typer.echo("\nTracing route...")
-    trace_route(target_ip, url, max_hops)
+    trace_geo_route(url, target_ip, max_hops)
 
 if __name__ == "__main__":
     app()
