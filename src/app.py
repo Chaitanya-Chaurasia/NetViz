@@ -60,7 +60,7 @@ def visualize(url: str):
     @description: A complete trace -> DNS resolution + Packet Visualization + GeoTracing
 """
 @app.command()
-def traceroute(url: str, show_layers: bool = True, max_hops: int = 30, method: str = "GET"):
+def traceroute(url: str, method: str, show_layers: bool = True, max_hops: int = 30):
 
     print("TELEMETRY: Performing a complete trace: DNS resolution + Packet Visualization + GeoTracing")
     if not url:
@@ -88,9 +88,10 @@ def traceroute(url: str, show_layers: bool = True, max_hops: int = 30, method: s
     
     typer.echo("\nVisualizing packets and breaking them into OSI...")
     try:
-        # Convert URL to a path by removing protocol and domain if present
         path = "/" + "/".join(url.split("/")[3:]) if "//" in url else "/"
-        request_flow_handler(ip_addr=target_ip, path=path, method=method)
+        if method.upper() == "POST":
+            data = {"key": "value"}
+        request_flow_handler(ip_addr=target_ip, path=path, method=method, data=data)
         typer.echo("\nRequest flow completed successfully.")
     except Exception as e:
         typer.echo(f"Error during packet visualization: {str(e)}")

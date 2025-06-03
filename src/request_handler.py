@@ -5,8 +5,7 @@ import json
 def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", method: str = "GET", data=None):
     if data is None:
         data = {}
-    
-    # Prepare the HTTP request
+
     body = json.dumps(data).encode() if method.upper() == "POST" else b""
     req_payload = (
         f"{method} {path} HTTP/1.1\r\n"
@@ -23,10 +22,8 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
             captured_pkts.append(pkt)
             print(f"Captured packet: {pkt.summary()}")
 
-    # Start packet capture in a separate thread
     from threading import Thread
     
-    # Start the sniffer in a separate thread
     sniffer = Thread(target=lambda: sniff(
         iface="Software Loopback Interface 1",
         filter=f"tcp port {port} and host {ip}",
@@ -36,12 +33,10 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
     ))
     sniffer.start()
     
-    # Give the sniffer a moment to start
     import time
     time.sleep(1)
     
     try:
-        # TCP 3-way handshake
         print(f"Sending SYN to {ip}:{port}")
         syn_pkt = IP(dst=ip)/TCP(sport=12345, dport=port, flags="S", seq=1000)
         synack = sr1(syn_pkt, timeout=5, verbose=0)
@@ -52,7 +47,6 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
             
         print(f"Received SYN-ACK from {ip}:{port}")
         
-        # Send ACK
         ack_pkt = IP(dst=ip)/TCP(
             sport=synack.dport,
             dport=synack.sport,
@@ -63,7 +57,6 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
         send(ack_pkt, verbose=0)
         print("Sent ACK")
         
-        # Send HTTP request with PSH flag
         psh_pkt = IP(dst=ip)/TCP(
             sport=synack.dport,
             dport=synack.sport,
@@ -75,10 +68,6 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
         send(psh_pkt, verbose=0)
         print("Sent HTTP request")
         
-        # Wait for response
-        time.sleep(2)
-        
-        # Send FIN-ACK to close the connection
         fin_pkt = IP(dst=ip)/TCP(
             sport=synack.dport,
             dport=synack.sport,
@@ -89,10 +78,6 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
         send(fin_pkt, verbose=0)
         print("Sent FIN-ACK")
         
-        # Wait for FIN-ACK from server
-        time.sleep(1)
-        
-        # Send final ACK
         last_ack = IP(dst=ip)/TCP(
             sport=synack.dport,
             dport=synack.sport,
@@ -106,10 +91,8 @@ def request_flow(ip: str = "127.0.0.1", port: int = 5000, path: str = "/get", me
     except Exception as e:
         print(f"Error during TCP communication: {e}")
     
-    # Wait for sniffer to finish
     sniffer.join(timeout=5)
     
-    # Process captured packets
     print(f"\nCaptured {len(captured_pkts)} packets")
     captured_pkts.sort(key=lambda x: x.time)
 

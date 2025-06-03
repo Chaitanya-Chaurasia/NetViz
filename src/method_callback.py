@@ -18,4 +18,4 @@ def trace_geo_route(url: str, ip_addr: str, max_hops: int = 30):
 
 def request_flow_handler(ip_addr: str, port: int = 5000, path: str = "/get", method: str = "GET", data = None):
 
-    return request_flow(ip_addr, port, path, data = data)
+    return request_flow(ip_addr, port, path, data = data, method = method)
