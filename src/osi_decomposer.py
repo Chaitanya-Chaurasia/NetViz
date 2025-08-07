@@ -25,6 +25,8 @@ def build_layers(ip_addr: str, url: str) -> List[Layer]:
         "note": "NetViz Echo Request"
     }
 
+    app_message_w1 = {}
+
     l7_bytes = json.dumps(app_msg).encode()
     l7 = Layer(7, "Application (JSON)", {
         "Content-Type": "application/json",
